@@ -1,0 +1,12 @@
+{
+  "luci-app-cfddns": {
+    "description": "Grant access to Cloudflare DDNS",
+    "read": {
+      "uci": [ "cfddns", "network" ],
+      "file": { "/usr/bin/cfddns": [ "exec" ] }
+    },
+    "write": {
+      "uci": [ "cfddns" ]
+    }
+  }
+}

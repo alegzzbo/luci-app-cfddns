@@ -1,0 +1,274 @@
+#!/bin/sh
+# cfddns - Cloudflare DDNS for multi-WAN OpenWrt
+# Usage: cfddns run [network] | zones | tgtest
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+
+exec 2>&1
+
+CF_API="https://api.cloudflare.com/client/v4"
+LOCK=/var/lock/cfddns.lock
+WEB_SOURCES="https://ifconfig.me/ip https://api.ipify.org https://icanhazip.com https://checkip.amazonaws.com"
+
+log() { echo "$*" >&2; logger -t cfddns "$*"; }
+
+is_ipv4() {
+    echo "$1" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || return 1
+    local o IFS=.
+    for o in $1; do [ "$o" -le 255 ] || return 1; done
+    return 0
+}
+
+is_private() {
+    case "$1" in
+        0.*|10.*|127.*|169.254.*|192.168.*) return 0 ;;
+        172.1[6-9].*|172.2[0-9].*|172.3[01].*) return 0 ;;
+        100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 0 ;;
+    esac
+    return 1
+}
+
+valid_domain() { echo "$1" | grep -qE '^[A-Za-z0-9_.-]+\.[A-Za-z0-9-]{2,}$'; }
+
+lock() {
+    local i=0 pid
+    while ! mkdir "$LOCK" 2>/dev/null; do
+        pid=$(cat "$LOCK/pid" 2>/dev/null)
+        if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+            rm -rf "$LOCK"; continue
+        fi
+        i=$((i + 1))
+        if [ "$i" -ge 60 ]; then rm -rf "$LOCK"; continue; fi
+        sleep 1
+    done
+    echo $$ > "$LOCK/pid"
+    trap 'rm -rf "$LOCK"' EXIT INT TERM
+}
+
+### Config
+load_cfg() {
+    config_load cfddns
+    config_get_bool G_EN global enabled 0
+    config_get TOKEN global api_token
+    config_get_bool TG_EN telegram enabled 0
+    config_get TG_TOKEN telegram bot_token
+    config_get TG_CHAT telegram chat_id
+    config_get PX_LEGACY telegram proxy
+    config_get PX_TYPE telegram proxy_type none
+    config_get PX_HOST telegram proxy_host
+    config_get PX_PORT telegram proxy_port
+    config_get PX_USER telegram proxy_user
+    config_get PX_PASS telegram proxy_pass
+    config_get_bool PX_INSECURE telegram proxy_insecure 0
+    case "$PX_TYPE" in http|https|socks5h) ;; *) PX_TYPE=none ;; esac
+    config_get_bool TG_UPD telegram notify_update 1
+    config_get_bool TG_ERR telegram notify_error 0
+}
+
+### Telegram
+tg() {
+    [ "$TG_EN" = 1 ] && [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ] || return 1
+    local text="$1" resp port
+    set -- -s --max-time 15
+    if [ "$PX_TYPE" != "none" ] && [ -n "$PX_HOST" ]; then
+        case "$PX_TYPE" in
+            https) port=443 ;;
+            socks5h) port=1080 ;;
+            *) port=3128 ;;
+        esac
+        set -- "$@" -x "$PX_TYPE://$PX_HOST:${PX_PORT:-$port}"
+        [ -n "$PX_USER" ] && set -- "$@" -U "$PX_USER:$PX_PASS"
+        if [ "$PX_TYPE" = "https" ]; then
+            [ "$PX_INSECURE" = 1 ] && set -- "$@" --proxy-insecure
+            curl -V 2>/dev/null | grep -q 'HTTPS-proxy' || log "Telegram: this curl build has no HTTPS-proxy support"
+        fi
+    elif [ -n "$PX_LEGACY" ]; then
+        set -- "$@" -x "$PX_LEGACY"
+    fi
+    resp=$(curl "$@" -G "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+        --data-urlencode "chat_id=$TG_CHAT" --data-urlencode "text=$text")
+    [ "$(jsonfilter -s "$resp" -e '@.ok')" = "true" ] && return 0
+    log "Telegram: send failed ${resp:+($resp)}"
+    return 1
+}
+notify_ok() { [ "$TG_UPD" = 1 ] && tg "$1"; return 0; }
+notify_err() { [ "$TG_ERR" = 1 ] && tg "$1"; return 0; }
+
+### Cloudflare
+cf() { # method path [json]
+    if [ -n "$3" ]; then
+        curl -s --max-time 15 -X "$1" "$CF_API$2" \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data "$3"
+    else
+        curl -s --max-time 15 -X "$1" "$CF_API$2" \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"
+    fi
+}
+cf_ok() { [ "$(jsonfilter -s "$1" -e '@.success')" = "true" ]; }
+cf_err() {
+    [ -n "$1" ] || { echo "no response (timeout/network)"; return; }
+    local m
+    m=$(jsonfilter -s "$1" -e '@.errors[0].message')
+    echo "${m:-invalid response}"
+}
+
+get_zone_id() { # domain; walks up labels: a.b.example.com -> b.example.com -> example.com
+    local d="$1" resp id
+    while [ "${d#*.}" != "$d" ]; do
+        resp=$(cf GET "/zones?name=$d")
+        if ! cf_ok "$resp"; then
+            log "Zone lookup failed: $(cf_err "$resp")"
+            return 1
+        fi
+        id=$(jsonfilter -s "$resp" -e '@.result[0].id')
+        if [ -n "$id" ]; then echo "$id"; return 0; fi
+        d="${d#*.}"
+    done
+    return 1
+}
+
+### IP detection
+get_ip() { # network source
+    local net="$1" src="$2" ip dev url
+    if [ "$src" = "iface" ]; then
+        network_get_ipaddr ip "$net"
+        [ -n "$ip" ] || { log "[$net] no IPv4 address on interface"; return 1; }
+        if is_private "$ip"; then
+            log "[$net] interface IP $ip is private (NAT), use web source"
+            return 1
+        fi
+    else
+        network_get_device dev "$net"
+        [ -n "$dev" ] || { log "[$net] interface is down"; return 1; }
+        for url in $WEB_SOURCES; do
+            ip=$(curl -4 -s --max-time 8 --interface "$dev" "$url" 2>/dev/null | tr -d ' \r\n')
+            if is_ipv4 "$ip" && ! is_private "$ip"; then break; fi
+            ip=""
+        done
+        [ -n "$ip" ] || { log "[$net] can't get external IP from web sources"; return 1; }
+    fi
+    echo "$ip"
+}
+
+### Update one domain
+update_domain() { # section domain zone ip
+    local sec="$1" dom="$2" zone="$3" ip="$4" resp rid cur body
+    if [ -z "$zone" ]; then
+        zone=$(get_zone_id "$dom")
+        if [ -z "$zone" ]; then
+            log "[$dom] zone not found (token needs Zone:Read + DNS:Edit)"
+            notify_err "cfddns: $dom - zone not found"
+            return 1
+        fi
+        uci -q set "cfddns.$sec.zone_id=$zone" && uci -q commit cfddns
+        log "[$dom] zone id cached: $zone"
+    fi
+
+    resp=$(cf GET "/zones/$zone/dns_records?type=A&name=$dom")
+    if ! cf_ok "$resp"; then
+        log "[$dom] API error: $(cf_err "$resp")"
+        notify_err "cfddns: $dom - API error: $(cf_err "$resp")"
+        return 1
+    fi
+    rid=$(jsonfilter -s "$resp" -e '@.result[0].id')
+    cur=$(jsonfilter -s "$resp" -e '@.result[0].content')
+
+    if [ -z "$rid" ]; then
+        body="{\"type\":\"A\",\"name\":\"$dom\",\"content\":\"$ip\",\"ttl\":1,\"proxied\":false}"
+        resp=$(cf POST "/zones/$zone/dns_records" "$body")
+    elif [ "$cur" = "$ip" ]; then
+        log "[$dom] up to date ($ip)"
+        return 0
+    else
+        resp=$(cf PATCH "/zones/$zone/dns_records/$rid" "{\"content\":\"$ip\"}")
+    fi
+
+    if cf_ok "$resp"; then
+        log "[$dom] updated: ${cur:-none} -> $ip"
+        notify_ok "cfddns: $dom -> $ip"
+    else
+        log "[$dom] update failed: $(cf_err "$resp")"
+        notify_err "cfddns: $dom - update failed: $(cf_err "$resp")"
+        return 1
+    fi
+}
+
+handle_domain() {
+    local s="$1" en iface name zone
+    config_get_bool en "$s" enabled 1
+    [ "$en" = 1 ] || return 0
+    config_get iface "$s" interface
+    [ "$iface" = "$CUR_NET" ] || return 0
+    config_get name "$s" name
+    config_get zone "$s" zone_id
+    valid_domain "$name" || { log "[$s] invalid domain '$name'"; return 0; }
+    if [ -z "$CUR_IP" ]; then
+        [ "$IP_FAIL" = 1 ] && return 0
+        CUR_IP=$(get_ip "$CUR_NET" "$CUR_SRC") || {
+            IP_FAIL=1
+            notify_err "cfddns: [$CUR_NET] can't determine IP"
+            return 0
+        }
+        log "[$CUR_NET] IP: $CUR_IP"
+    fi
+    update_domain "$s" "$name" "$zone" "$CUR_IP"
+}
+
+handle_iface() {
+    local s="$1" en net
+    config_get_bool en "$s" enabled 1
+    [ "$en" = 1 ] || return 0
+    config_get net "$s" network
+    [ -n "$net" ] || return 0
+    [ -z "$ONLY" ] || [ "$ONLY" = "$net" ] || return 0
+    CUR_NET="$net"
+    config_get CUR_SRC "$s" ip_source web
+    CUR_IP=""
+    IP_FAIL=0
+    config_foreach handle_domain domain
+}
+
+zone_cb() {
+    local s="$1" name zone
+    config_get name "$s" name
+    valid_domain "$name" || { log "[$s] invalid domain '$name'"; return 0; }
+    zone=$(get_zone_id "$name")
+    if [ -n "$zone" ]; then
+        uci -q set "cfddns.$s.zone_id=$zone"
+        ZCHG=1
+        log "$name -> $zone"
+    else
+        log "$name: zone not found"
+    fi
+}
+
+cmd_run() {
+    ONLY="$1"
+    load_cfg
+    [ "$G_EN" = 1 ] || { log "disabled in config"; exit 0; }
+    [ -n "$TOKEN" ] || { log "API token not set"; exit 1; }
+    lock
+    config_foreach handle_iface interface
+}
+
+cmd_zones() {
+    load_cfg
+    [ -n "$TOKEN" ] || { log "API token not set (Save & Apply first)"; exit 1; }
+    config_foreach zone_cb domain
+    [ "$ZCHG" = 1 ] && uci -q commit cfddns
+    return 0
+}
+
+cmd_tgtest() {
+    load_cfg
+    TG_EN=1
+    if tg "cfddns: test message"; then log "Telegram: OK"; else log "Telegram: FAILED (check token/chat id/proxy; Save & Apply first)"; fi
+}
+
+case "$1" in
+    run) cmd_run "$2" ;;
+    zones) cmd_zones ;;
+    tgtest) cmd_tgtest ;;
+    *) echo "Usage: cfddns run [network] | zones | tgtest"; exit 1 ;;
+esac

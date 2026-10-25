@@ -1,0 +1,32 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=99
+
+CRON=/etc/crontabs/root
+
+update_cron() {
+    local en iv spec=""
+    mkdir -p /etc/crontabs
+    touch "$CRON"
+    sed -i '/# cfddns$/d' "$CRON"
+    en=$(uci -q get cfddns.global.enabled)
+    iv=$(uci -q get cfddns.global.cron_interval)
+    if [ "$en" = "1" ]; then
+        case "$iv" in
+            ''|*[!0-9]*|0) ;;
+            60) spec="0 * * * *" ;;
+            *) [ "$iv" -lt 60 ] && spec="*/$iv * * * *" ;;
+        esac
+    fi
+    [ -n "$spec" ] && echo "$spec /usr/bin/cfddns run >/dev/null 2>&1 # cfddns" >> "$CRON"
+    /etc/init.d/cron restart >/dev/null 2>&1
+}
+
+start_service() { update_cron; }
+reload_service() { update_cron; }
+stop_service() {
+    sed -i '/# cfddns$/d' "$CRON" 2>/dev/null
+    /etc/init.d/cron restart >/dev/null 2>&1
+}
+service_triggers() { procd_add_reload_trigger cfddns; }
