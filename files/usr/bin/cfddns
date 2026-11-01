@@ -1,6 +1,6 @@
 #!/bin/sh
 # cfddns - Cloudflare DDNS for multi-WAN OpenWrt
-# Usage: cfddns run [network] [retry] | zones | records | tgtest
+# Usage: cfddns run [network] [retry] | zones | records | add | delete | tgtest
 
 . /lib/functions.sh
 . /lib/functions/network.sh
@@ -9,6 +9,7 @@ exec 2>&1
 
 CF_API="https://api.cloudflare.com/client/v4"
 LOCK=/var/lock/cfddns.lock
+STATE=/var/run/cfddns
 DEFAULT_SOURCES="https://ifconfig.me/ip https://api.ipify.org https://icanhazip.com https://checkip.amazonaws.com"
 WEB_SOURCES=""
 LAST=1
@@ -81,6 +82,8 @@ load_cfg() {
     case "$PX_TYPE" in http|https|socks5h) ;; *) PX_TYPE=none ;; esac
     config_get_bool TG_UPD telegram notify_update 1
     config_get_bool TG_ERR telegram notify_error 0
+    config_get REPEAT_H telegram error_repeat 0
+    case "$REPEAT_H" in ''|*[!0-9]*) REPEAT_H=0 ;; esac
     config_get RETRIES global retries 3
     config_get RETRY_DELAY global retry_delay 20
     case "$RETRIES" in ''|*[!0-9]*) RETRIES=3 ;; esac
@@ -120,7 +123,32 @@ tg() {
     return 1
 }
 notify_ok() { [ "$TG_UPD" = 1 ] && tg "$1"; return 0; }
-notify_err() { [ "$LAST" = 1 ] && [ "$TG_ERR" = 1 ] && tg "$1"; return 0; }
+# Error notifications are de-duplicated: the same text for the same key is sent once
+# (again after REPEAT_H hours if > 0); a "recovered" message is sent when it is fixed.
+notify_err() { # key text
+    [ "$LAST" = 1 ] && [ "$TG_ERR" = 1 ] || return 0
+    local f old ts now
+    f="$STATE/err_$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')"
+    now=$(date +%s)
+    if [ -f "$f" ]; then
+        old=$(sed -n 1p "$f"); ts=$(sed -n 2p "$f")
+        if [ "$old" = "$2" ]; then
+            [ "$REPEAT_H" -gt 0 ] && [ $((now - ${ts:-0})) -ge $((REPEAT_H * 3600)) ] || return 0
+        fi
+    fi
+    mkdir -p "$STATE"
+    tg "$2" && printf '%s\n%s\n' "$2" "$now" > "$f"
+    return 0
+}
+
+notify_clear() { # key text; returns 0 if an error had been reported before
+    local f
+    f="$STATE/err_$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')"
+    [ -f "$f" ] || return 1
+    rm -f "$f"
+    [ "$TG_ERR" = 1 ] && tg "$2"
+    return 0
+}
 
 ### Cloudflare
 cf() { # method path [json]
@@ -156,26 +184,61 @@ get_zone_id() { # domain; walks up labels: a.b.example.com -> b.example.com -> e
 }
 
 ### IP detection
+curl_rc_text() {
+    case "$1" in
+        6) echo "DNS lookup failed" ;;
+        7) echo "connection failed" ;;
+        28) echo "timeout" ;;
+        35|51|58|59|60|77|83) echo "TLS/certificate error (check system time)" ;;
+        *) echo "curl error $1" ;;
+    esac
+}
+
+# sets GOT_IP on success, IP_ERR (human readable reason) on failure
 get_ip() { # network source
-    local net="$1" src="$2" ip dev url
+    local net="$1" src="$2" ip dev url raw rc host why=""
+    GOT_IP=""
+    IP_ERR=""
     if [ "$src" = "iface" ]; then
         network_get_ipaddr ip "$net"
-        [ -n "$ip" ] || { log "[$net] no IPv4 address on interface"; return 1; }
+        if [ -z "$ip" ]; then
+            IP_ERR="interface has no IPv4 address (not connected yet?)"
+            return 1
+        fi
         if is_private "$ip"; then
-            log "[$net] interface IP $ip is private (NAT), use web source"
+            IP_ERR="interface IP $ip is private (NAT/CGNAT), not a public address. Set IP source to 'web' or ask the ISP for a public IP"
             return 1
         fi
     else
         network_get_device dev "$net"
-        [ -n "$dev" ] || { log "[$net] interface is down"; return 1; }
+        if [ -z "$dev" ]; then
+            IP_ERR="interface is down (no device)"
+            return 1
+        fi
         for url in $WEB_SOURCES; do
-            ip=$(curl -4 -s --max-time 8 --interface "$dev" "$url" 2>/dev/null | head -c 2048 | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
-            if is_ipv4 "$ip" && ! is_private "$ip"; then break; fi
-            ip=""
+            host="${url#*://}"; host="${host%%/*}"
+            raw=$(curl -4 -s --max-time 8 --interface "$dev" "$url" 2>/dev/null); rc=$?
+            if [ "$rc" != 0 ]; then
+                why="$why; $host: $(curl_rc_text "$rc")"
+                continue
+            fi
+            ip=$(echo "$raw" | head -c 2048 | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+            if [ -z "$ip" ] || ! is_ipv4 "$ip"; then
+                why="$why; $host: no IPv4 in response"; ip=""; continue
+            fi
+            if is_private "$ip"; then
+                why="$why; $host: returned private IP $ip"; ip=""; continue
+            fi
+            break
         done
-        [ -n "$ip" ] || { log "[$net] can't get external IP from web sources"; return 1; }
+        if [ -z "$ip" ]; then
+            [ -n "$why" ] && why=" (${why#; })"
+            IP_ERR="no public IPv4 from web services via $dev$why"
+            return 1
+        fi
     fi
-    echo "$ip"
+    GOT_IP="$ip"
+    return 0
 }
 
 ### Update one domain
@@ -185,7 +248,7 @@ update_domain() { # section domain zone ip
         zone=$(get_zone_id "$dom")
         if [ -z "$zone" ]; then
             log "[$dom] zone not found (token needs Zone:Read + DNS:Edit)"
-            notify_err "cfddns: $dom - zone not found"
+            notify_err "dom_$dom" "cfddns: $dom - zone not found"
             return 1
         fi
         uci -q set "cfddns.$sec.zone_id=$zone" && uci -q commit cfddns
@@ -195,7 +258,7 @@ update_domain() { # section domain zone ip
     resp=$(cf GET "/zones/$zone/dns_records?type=A&name=$dom")
     if ! cf_ok "$resp"; then
         log "[$dom] API error: $(cf_err "$resp")"
-        notify_err "cfddns: $dom - API error: $(cf_err "$resp")"
+        notify_err "dom_$dom" "cfddns: $dom - API error: $(cf_err "$resp")"
         return 1
     fi
     rid=$(jsonfilter -s "$resp" -e '@.result[0].id')
@@ -206,6 +269,7 @@ update_domain() { # section domain zone ip
         resp=$(cf POST "/zones/$zone/dns_records" "$body")
     elif [ "$cur" = "$ip" ]; then
         log "[$dom] up to date ($ip)"
+        notify_clear "dom_$dom" "cfddns: $dom recovered, record is up to date ($ip)"
         return 0
     else
         resp=$(cf PATCH "/zones/$zone/dns_records/$rid" "{\"content\":\"$ip\"}")
@@ -213,10 +277,10 @@ update_domain() { # section domain zone ip
 
     if cf_ok "$resp"; then
         log "[$dom] updated: ${cur:-none} -> $ip"
-        notify_ok "cfddns: $dom -> $ip"
+        notify_clear "dom_$dom" "cfddns: $dom recovered, updated -> $ip" || notify_ok "cfddns: $dom -> $ip"
     else
         log "[$dom] update failed: $(cf_err "$resp")"
-        notify_err "cfddns: $dom - update failed: $(cf_err "$resp")"
+        notify_err "dom_$dom" "cfddns: $dom - update failed: $(cf_err "$resp")"
         return 1
     fi
 }
@@ -232,13 +296,17 @@ handle_domain() {
     valid_domain "$name" || { log "[$s] invalid domain '$name'"; return 0; }
     if [ -z "$CUR_IP" ]; then
         [ "$IP_FAIL" = 1 ] && return 0
-        CUR_IP=$(get_ip "$CUR_NET" "$CUR_SRC") || {
+        if get_ip "$CUR_NET" "$CUR_SRC"; then
+            CUR_IP="$GOT_IP"
+            log "[$CUR_NET] IP: $CUR_IP"
+            notify_clear "ip_$CUR_NET" "cfddns: [$CUR_NET] recovered, IP $CUR_IP"
+        else
             IP_FAIL=1
             FAILED=1
-            notify_err "cfddns: [$CUR_NET] can't determine IP"
+            log "[$CUR_NET] $IP_ERR"
+            notify_err "ip_$CUR_NET" "cfddns: [$CUR_NET] $IP_ERR"
             return 0
-        }
-        log "[$CUR_NET] IP: $CUR_IP"
+        fi
     fi
     update_domain "$s" "$name" "$zone" "$CUR_IP" || FAILED=1
 }
@@ -335,10 +403,57 @@ cmd_tgtest() {
     if tg "cfddns: test message"; then log "Telegram: OK"; else log "Telegram: FAILED (check token/chat id/proxy; Save & Apply first)"; fi
 }
 
+is_hex32() { echo "$1" | grep -qE '^[0-9a-f]{32}$'; }
+
+cmd_add() { # zone_id name ipv4 [ttl] [proxied]
+    local zone="$1" name="$2" ip="$3" ttl="${4:-1}" prox="${5:-false}" resp body
+    load_cfg
+    [ -n "$TOKEN" ] || { log "API token not set"; exit 1; }
+    is_hex32 "$zone" || { log "invalid zone id"; exit 1; }
+    valid_domain "$name" || { log "invalid domain '$name'"; exit 1; }
+    is_ipv4 "$ip" || { log "invalid IPv4 address '$ip'"; exit 1; }
+    case "$ttl" in
+        1) ;;
+        ''|*[!0-9]*) log "invalid TTL '$ttl'"; exit 1 ;;
+        *) if [ "$ttl" -lt 60 ] || [ "$ttl" -gt 86400 ]; then log "TTL must be 1 (auto) or 60..86400"; exit 1; fi ;;
+    esac
+    [ "$prox" = "true" ] || prox=false
+    [ "$prox" = "true" ] && ttl=1
+    body="{\"type\":\"A\",\"name\":\"$name\",\"content\":\"$ip\",\"ttl\":$ttl,\"proxied\":$prox}"
+    resp=$(cf POST "/zones/$zone/dns_records" "$body")
+    if cf_ok "$resp"; then
+        log "Created A record $name -> $ip (ttl $ttl, proxied $prox)"
+    else
+        log "Create failed: $(cf_err "$resp")"
+        exit 1
+    fi
+}
+
+cmd_delete() { # zone_id record_id
+    local zone="$1" rid="$2" resp rtype rname
+    load_cfg
+    [ -n "$TOKEN" ] || { log "API token not set"; exit 1; }
+    is_hex32 "$zone" && is_hex32 "$rid" || { log "invalid zone/record id"; exit 1; }
+    resp=$(cf GET "/zones/$zone/dns_records/$rid")
+    cf_ok "$resp" || { log "Lookup failed: $(cf_err "$resp")"; exit 1; }
+    rtype=$(jsonfilter -s "$resp" -e '@.result.type')
+    rname=$(jsonfilter -s "$resp" -e '@.result.name')
+    [ "$rtype" = "A" ] || { log "Refusing to delete $rname: type is '$rtype', not A"; exit 1; }
+    resp=$(cf DELETE "/zones/$zone/dns_records/$rid")
+    if cf_ok "$resp"; then
+        log "Deleted A record $rname"
+    else
+        log "Delete failed: $(cf_err "$resp")"
+        exit 1
+    fi
+}
+
 case "$1" in
     run) cmd_run "$2" "$3" ;;
     zones) cmd_zones ;;
     records) cmd_records ;;
+    add) shift; cmd_add "$@" ;;
+    delete) shift; cmd_delete "$@" ;;
     tgtest) cmd_tgtest ;;
-    *) echo "Usage: cfddns run [network] [retry] | zones | records | tgtest"; exit 1 ;;
+    *) echo "Usage: cfddns run [network] [retry] | zones | records | add <zone_id> <name> <ip> [ttl] [proxied] | delete <zone_id> <record_id> | tgtest"; exit 1 ;;
 esac

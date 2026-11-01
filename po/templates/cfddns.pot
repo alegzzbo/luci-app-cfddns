@@ -1,0 +1,279 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Project-Id-Version: luci-app-cfddns\n"
+
+msgid "Running..."
+msgstr ""
+
+msgid "(no output)"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Cloudflare records"
+msgstr ""
+
+msgid "Loading..."
+msgstr ""
+
+msgid "No zones found."
+msgstr ""
+
+msgid "No network interfaces found."
+msgstr ""
+
+msgid "Delete A record %s (%s)?"
+msgstr ""
+
+msgid "Also remove from managed domains"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "(already added)"
+msgstr ""
+
+msgid "Proxied"
+msgstr ""
+
+msgid "Domain"
+msgstr ""
+
+msgid "Current IP"
+msgstr ""
+
+msgid "Zone"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "IP address"
+msgstr ""
+
+msgid "Auto"
+msgstr ""
+
+msgid "Fill in name and IP address."
+msgstr ""
+
+msgid "Select records to add them to managed domains, or delete records."
+msgstr ""
+
+msgid "Interface"
+msgstr ""
+
+msgid "Used when adding to managed domains."
+msgstr ""
+
+msgid "New A record"
+msgstr ""
+
+msgid "Proxied (orange cloud)"
+msgstr ""
+
+msgid "Short names are completed with the zone, @ = zone itself."
+msgstr ""
+
+msgid "Add to managed domains"
+msgstr ""
+
+msgid "Create"
+msgstr ""
+
+msgid "Add selected to managed domains"
+msgstr ""
+
+msgid "Cloudflare DDNS"
+msgstr ""
+
+msgid "Updates Cloudflare A records per WAN interface: on interface up and periodically."
+msgstr ""
+
+msgid "General"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "Cloudflare API token"
+msgstr ""
+
+msgid "One token for all domains. Permissions: Zone - Zone - Read, Zone - DNS - Edit."
+msgstr ""
+
+msgid "Periodic check"
+msgstr ""
+
+msgid "In addition to interface up events (catches IP changes without link flap)."
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Every %d min"
+msgstr ""
+
+msgid "Attempts at interface up"
+msgstr ""
+
+msgid "Used by interface-up events (boot, reconnect): DNS or time may not be ready yet."
+msgstr ""
+
+msgid "Delay between attempts (s)"
+msgstr ""
+
+msgid "IP check services"
+msgstr ""
+
+msgid "Used by the \"web\" IP source, tried in order through the WAN interface. The first IPv4 found in the response is used (plain text or JSON). Empty = ifconfig.me/ip, api.ipify.org, icanhazip.com, checkip.amazonaws.com."
+msgstr ""
+
+msgid "Invalid URL"
+msgstr ""
+
+msgid "Zone IDs"
+msgstr ""
+
+msgid "Save & Apply first. Fetches and caches Zone ID for every domain below."
+msgstr ""
+
+msgid "Get Zone IDs"
+msgstr ""
+
+msgid "List, add and delete A records, add them to managed domains. Save & Apply the token first."
+msgstr ""
+
+msgid "Manage records"
+msgstr ""
+
+msgid "Update now"
+msgstr ""
+
+msgid "Save & Apply first. Runs the update for all enabled interfaces."
+msgstr ""
+
+msgid "Run"
+msgstr ""
+
+msgid "Update"
+msgstr ""
+
+msgid "Interfaces"
+msgstr ""
+
+msgid "web: ifconfig.me, ipify, icanhazip, amazonaws are queried through this interface; the answer is validated. iface: IPv4 is taken from the interface; skipped if it is private (NAT)."
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "IP source"
+msgstr ""
+
+msgid "External web service"
+msgstr ""
+
+msgid "Interface address"
+msgstr ""
+
+msgid "Protocol / update trigger"
+msgstr ""
+
+msgid "on connect"
+msgstr ""
+
+msgid "on up and address change"
+msgstr ""
+
+msgid "Domains"
+msgstr ""
+
+msgid "A domain is processed if its interface is also enabled in the table above. Clear Zone ID to re-fetch it."
+msgstr ""
+
+msgid "Zone ID"
+msgstr ""
+
+msgid "auto"
+msgstr ""
+
+msgid "Telegram notifications"
+msgstr ""
+
+msgid "Bot token"
+msgstr ""
+
+msgid "Chat ID"
+msgstr ""
+
+msgid "Proxy"
+msgstr ""
+
+msgid "None"
+msgstr ""
+
+msgid "HTTP"
+msgstr ""
+
+msgid "HTTPS"
+msgstr ""
+
+msgid "SOCKS5"
+msgstr ""
+
+msgid "Proxy host"
+msgstr ""
+
+msgid "Proxy port"
+msgstr ""
+
+msgid "Empty = default (HTTP 3128, HTTPS 443, SOCKS5 1080)."
+msgstr ""
+
+msgid "default"
+msgstr ""
+
+msgid "Proxy user (optional)"
+msgstr ""
+
+msgid "Proxy password"
+msgstr ""
+
+msgid "Skip proxy certificate check"
+msgstr ""
+
+msgid "HTTPS proxy only (self-signed certificate)."
+msgstr ""
+
+msgid "Notify on update"
+msgstr ""
+
+msgid "Notify on errors"
+msgstr ""
+
+msgid "Repeat the same error after (hours)"
+msgstr ""
+
+msgid "0 = send once, then only when the error changes or is fixed."
+msgstr ""
+
+msgid "Test"
+msgstr ""
+
+msgid "Save & Apply first."
+msgstr ""
+
+msgid "Send test message"
+msgstr ""
+
+msgid "Telegram test"
+msgstr ""
+

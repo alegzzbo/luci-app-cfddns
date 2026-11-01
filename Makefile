@@ -1,9 +1,10 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-cfddns
-PKG_VERSION:=1.2.0
+PKG_VERSION:=1.4.1
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
+PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -34,6 +35,8 @@ define Package/luci-app-cfddns/install
 	$(INSTALL_DIR) $(1)
 	$(CP) ./files/* $(1)/
 	chmod 0755 $(1)/usr/bin/cfddns $(1)/etc/init.d/cfddns $(1)/etc/hotplug.d/iface/90-cfddns
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
+	$(STAGING_DIR_HOSTPKG)/bin/po2lmo ./po/ru/cfddns.po $(1)/usr/lib/lua/luci/i18n/cfddns.ru.lmo
 endef
 
 define Package/luci-app-cfddns/postinst

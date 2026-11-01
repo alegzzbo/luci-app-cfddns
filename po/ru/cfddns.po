@@ -1,0 +1,281 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Project-Id-Version: luci-app-cfddns\n"
+"Language: ru\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "Running..."
+msgstr "Выполняется..."
+
+msgid "(no output)"
+msgstr "(нет вывода)"
+
+msgid "Close"
+msgstr "Закрыть"
+
+msgid "Cloudflare records"
+msgstr "Записи Cloudflare"
+
+msgid "Loading..."
+msgstr "Загрузка..."
+
+msgid "No zones found."
+msgstr "Зоны не найдены."
+
+msgid "No network interfaces found."
+msgstr "Сетевые интерфейсы не найдены."
+
+msgid "Delete A record %s (%s)?"
+msgstr "Удалить A-запись %s (%s)?"
+
+msgid "Also remove from managed domains"
+msgstr "Также убрать из управляемых доменов"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Delete"
+msgstr "Удалить"
+
+msgid "(already added)"
+msgstr "(уже добавлен)"
+
+msgid "Proxied"
+msgstr "Проксируется"
+
+msgid "Domain"
+msgstr "Домен"
+
+msgid "Current IP"
+msgstr "Текущий IP"
+
+msgid "Zone"
+msgstr "Зона"
+
+msgid "Name"
+msgstr "Имя"
+
+msgid "IP address"
+msgstr "IP-адрес"
+
+msgid "Auto"
+msgstr "Авто"
+
+msgid "Fill in name and IP address."
+msgstr "Укажите имя и IP-адрес."
+
+msgid "Select records to add them to managed domains, or delete records."
+msgstr "Отметьте записи, чтобы добавить их в управляемые домены, или удалите записи."
+
+msgid "Interface"
+msgstr "Интерфейс"
+
+msgid "Used when adding to managed domains."
+msgstr "Используется при добавлении в управляемые домены."
+
+msgid "New A record"
+msgstr "Новая A-запись"
+
+msgid "Proxied (orange cloud)"
+msgstr "Проксирование (оранжевое облако)"
+
+msgid "Short names are completed with the zone, @ = zone itself."
+msgstr "Короткое имя дополняется зоной, @ = сама зона."
+
+msgid "Add to managed domains"
+msgstr "Добавить в управляемые домены"
+
+msgid "Create"
+msgstr "Создать"
+
+msgid "Add selected to managed domains"
+msgstr "Добавить выбранные в управляемые домены"
+
+msgid "Cloudflare DDNS"
+msgstr "Cloudflare DDNS"
+
+msgid "Updates Cloudflare A records per WAN interface: on interface up and periodically."
+msgstr "Обновляет A-записи Cloudflare для каждого WAN-интерфейса: при поднятии интерфейса и периодически."
+
+msgid "General"
+msgstr "Основное"
+
+msgid "Enable"
+msgstr "Включить"
+
+msgid "Cloudflare API token"
+msgstr "API-токен Cloudflare"
+
+msgid "One token for all domains. Permissions: Zone - Zone - Read, Zone - DNS - Edit."
+msgstr "Один токен для всех доменов. Права: Zone - Zone - Read, Zone - DNS - Edit."
+
+msgid "Periodic check"
+msgstr "Периодическая проверка"
+
+msgid "In addition to interface up events (catches IP changes without link flap)."
+msgstr "Дополнительно к событиям поднятия интерфейса (ловит смену IP без обрыва линка)."
+
+msgid "Disabled"
+msgstr "Отключено"
+
+msgid "Every %d min"
+msgstr "Каждые %d мин."
+
+msgid "Attempts at interface up"
+msgstr "Попыток при поднятии интерфейса"
+
+msgid "Used by interface-up events (boot, reconnect): DNS or time may not be ready yet."
+msgstr "Используется при событиях поднятия интерфейса (загрузка, переподключение): DNS или время могут быть ещё не готовы."
+
+msgid "Delay between attempts (s)"
+msgstr "Пауза между попытками (с)"
+
+msgid "IP check services"
+msgstr "Сервисы проверки IP"
+
+msgid "Used by the \"web\" IP source, tried in order through the WAN interface. The first IPv4 found in the response is used (plain text or JSON). Empty = ifconfig.me/ip, api.ipify.org, icanhazip.com, checkip.amazonaws.com."
+msgstr "Используются источником IP «web», опрашиваются по порядку через WAN-интерфейс. Берётся первый IPv4 из ответа (текст или JSON). Пусто = ifconfig.me/ip, api.ipify.org, icanhazip.com, checkip.amazonaws.com."
+
+msgid "Invalid URL"
+msgstr "Неверный URL"
+
+msgid "Zone IDs"
+msgstr "Zone ID"
+
+msgid "Save & Apply first. Fetches and caches Zone ID for every domain below."
+msgstr "Сначала нажмите «Сохранить и применить». Получает и кеширует Zone ID для каждого домена ниже."
+
+msgid "Get Zone IDs"
+msgstr "Получить Zone ID"
+
+msgid "List, add and delete A records, add them to managed domains. Save & Apply the token first."
+msgstr "Просмотр, добавление и удаление A-записей, добавление их в управляемые домены. Сначала сохраните и примените токен."
+
+msgid "Manage records"
+msgstr "Управление записями"
+
+msgid "Update now"
+msgstr "Обновить сейчас"
+
+msgid "Save & Apply first. Runs the update for all enabled interfaces."
+msgstr "Сначала сохраните и примените. Запускает обновление для всех включённых интерфейсов."
+
+msgid "Run"
+msgstr "Запустить"
+
+msgid "Update"
+msgstr "Обновление"
+
+msgid "Interfaces"
+msgstr "Интерфейсы"
+
+msgid "web: ifconfig.me, ipify, icanhazip, amazonaws are queried through this interface; the answer is validated. iface: IPv4 is taken from the interface; skipped if it is private (NAT)."
+msgstr "web: ifconfig.me, ipify, icanhazip, amazonaws опрашиваются через этот интерфейс, ответ проверяется. iface: IPv4 берётся с интерфейса; пропускается, если он приватный (NAT)."
+
+msgid "Enabled"
+msgstr "Включён"
+
+msgid "IP source"
+msgstr "Источник IP"
+
+msgid "External web service"
+msgstr "Внешний веб-сервис"
+
+msgid "Interface address"
+msgstr "Адрес интерфейса"
+
+msgid "Protocol / update trigger"
+msgstr "Протокол / триггер обновления"
+
+msgid "on connect"
+msgstr "при подключении"
+
+msgid "on up and address change"
+msgstr "при поднятии и смене адреса"
+
+msgid "Domains"
+msgstr "Домены"
+
+msgid "A domain is processed if its interface is also enabled in the table above. Clear Zone ID to re-fetch it."
+msgstr "Домен обрабатывается, если его интерфейс также включён в таблице выше. Очистите Zone ID, чтобы получить его заново."
+
+msgid "Zone ID"
+msgstr "Zone ID"
+
+msgid "auto"
+msgstr "авто"
+
+msgid "Telegram notifications"
+msgstr "Уведомления Telegram"
+
+msgid "Bot token"
+msgstr "Токен бота"
+
+msgid "Chat ID"
+msgstr "ID чата"
+
+msgid "Proxy"
+msgstr "Прокси"
+
+msgid "None"
+msgstr "Нет"
+
+msgid "HTTP"
+msgstr "HTTP"
+
+msgid "HTTPS"
+msgstr "HTTPS"
+
+msgid "SOCKS5"
+msgstr "SOCKS5"
+
+msgid "Proxy host"
+msgstr "Хост прокси"
+
+msgid "Proxy port"
+msgstr "Порт прокси"
+
+msgid "Empty = default (HTTP 3128, HTTPS 443, SOCKS5 1080)."
+msgstr "Пусто = по умолчанию (HTTP 3128, HTTPS 443, SOCKS5 1080)."
+
+msgid "default"
+msgstr "по умолчанию"
+
+msgid "Proxy user (optional)"
+msgstr "Пользователь прокси (необязательно)"
+
+msgid "Proxy password"
+msgstr "Пароль прокси"
+
+msgid "Skip proxy certificate check"
+msgstr "Не проверять сертификат прокси"
+
+msgid "HTTPS proxy only (self-signed certificate)."
+msgstr "Только для HTTPS-прокси (самоподписанный сертификат)."
+
+msgid "Notify on update"
+msgstr "Уведомлять об обновлении"
+
+msgid "Notify on errors"
+msgstr "Уведомлять об ошибках"
+
+msgid "Repeat the same error after (hours)"
+msgstr "Повторять одинаковую ошибку через (часов)"
+
+msgid "0 = send once, then only when the error changes or is fixed."
+msgstr "0 = отправить один раз, затем только при изменении ошибки или её исправлении."
+
+msgid "Test"
+msgstr "Проверка"
+
+msgid "Save & Apply first."
+msgstr "Сначала сохраните и примените."
+
+msgid "Send test message"
+msgstr "Отправить тестовое сообщение"
+
+msgid "Telegram test"
+msgstr "Тест Telegram"
+
