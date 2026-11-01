@@ -2,6 +2,8 @@ config global 'global'
 	option enabled '0'
 	option api_token ''
 	option cron_interval '5'
+	option retries '3'
+	option retry_delay '20'
 
 config telegram 'telegram'
 	option enabled '0'

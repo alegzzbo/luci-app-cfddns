@@ -31,6 +31,99 @@ function runCmd(title, args, reload) {
     });
 }
 
+function closeBtn() {
+    return E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, _('Close'));
+}
+
+function parseRecords(out) {
+    var records = [], error = null;
+    out.split('\n').forEach(function(line) {
+        var j;
+        line = line.trim();
+        if (!line) return;
+        try { j = JSON.parse(line); } catch (e) { return; }
+        if (j.error) { error = j.error; return; }
+        ((j.records && j.records.result) || []).forEach(function(r) {
+            records.push({ name: r.name, content: r.content, zone: j.zone, zone_id: j.zone_id });
+        });
+    });
+    return { records: records, error: error };
+}
+
+function importDomains(nets) {
+    var title = _('Import from Cloudflare');
+    ui.showModal(title, [ E('p', { 'class': 'spinning' }, _('Loading...')) ]);
+    return fs.exec('/usr/bin/cfddns', [ 'records' ]).then(function(res) {
+        var p = parseRecords(res.stdout || '');
+        if (p.error || !p.records.length || !nets.length) {
+            ui.showModal(title, [
+                E('p', {}, p.error || (nets.length ? _('No A records found.') : _('No network interfaces found.'))),
+                E('div', { 'class': 'right' }, [ closeBtn() ])
+            ]);
+            return;
+        }
+
+        var existing = {};
+        uci.sections('cfddns', 'domain').forEach(function(s) { existing[s.name] = true; });
+
+        var sel = E('select', { 'class': 'cbi-input-select' },
+            nets.map(function(n) { return E('option', { 'value': n }, n); }));
+
+        var all = E('input', { 'type': 'checkbox' });
+        all.addEventListener('change', function() {
+            p.records.forEach(function(r) { if (!r.cb.disabled) r.cb.checked = all.checked; });
+        });
+
+        var rows = p.records.map(function(r) {
+            r.cb = E('input', { 'type': 'checkbox' });
+            if (existing[r.name]) r.cb.disabled = true;
+            return E('tr', { 'class': 'tr' }, [
+                E('td', { 'class': 'td' }, r.cb),
+                E('td', { 'class': 'td' }, r.name + (existing[r.name] ? ' ' + _('(already added)') : '')),
+                E('td', { 'class': 'td' }, r.content || ''),
+                E('td', { 'class': 'td' }, r.zone)
+            ]);
+        });
+
+        var head = E('tr', { 'class': 'tr table-titles' }, [
+            E('th', { 'class': 'th' }, all),
+            E('th', { 'class': 'th' }, _('Domain')),
+            E('th', { 'class': 'th' }, _('Current IP')),
+            E('th', { 'class': 'th' }, _('Zone'))
+        ]);
+
+        ui.showModal(title, [
+            E('p', {}, _('Select A records to add. Selected domains are bound to the interface below.')),
+            E('p', {}, [ E('strong', {}, _('Interface') + ': '), sel ]),
+            E('div', { 'style': 'max-height:50vh;overflow:auto' },
+                E('table', { 'class': 'table' }, [ head ].concat(rows))),
+            E('div', { 'class': 'right' }, [
+                closeBtn(), ' ',
+                E('button', {
+                    'class': 'btn cbi-button cbi-button-positive',
+                    'click': function() {
+                        var added = 0;
+                        p.records.forEach(function(r) {
+                            if (!r.cb.checked || r.cb.disabled) return;
+                            var id = uci.add('cfddns', 'domain');
+                            uci.set('cfddns', id, 'enabled', '1');
+                            uci.set('cfddns', id, 'name', r.name);
+                            uci.set('cfddns', id, 'interface', sel.value);
+                            uci.set('cfddns', id, 'zone_id', r.zone_id);
+                            added++;
+                        });
+                        if (!added) { ui.hideModal(); return; }
+                        return uci.save().then(function() { window.location.reload(); });
+                    }
+                }, _('Add selected'))
+            ])
+        ]);
+    }).catch(function(err) {
+        ui.hideModal();
+        ui.addNotification(null, E('p', (err && err.message) || String(err)), 'danger');
+    });
+}
+
 return view.extend({
     load: function() {
         return uci.load('network');
@@ -63,11 +156,36 @@ return view.extend({
         });
         o.default = '5';
 
+        o = s.option(form.Value, 'retries', _('Attempts at interface up'),
+            _('Used by interface-up events (boot, reconnect): DNS or time may not be ready yet.'));
+        o.datatype = 'range(1,10)';
+        o.default = '3';
+
+        o = s.option(form.Value, 'retry_delay', _('Delay between attempts (s)'));
+        o.datatype = 'range(1,300)';
+        o.default = '20';
+
+        o = s.option(form.DynamicList, 'ip_service', _('IP check services'),
+            _('Used by the "web" IP source, tried in order through the WAN interface. ' +
+              'The first IPv4 found in the response is used (plain text or JSON). ' +
+              'Empty = ifconfig.me/ip, api.ipify.org, icanhazip.com, checkip.amazonaws.com.'));
+        o.placeholder = 'https://api.ipify.org';
+        o.validate = function(section_id, value) {
+            if (value == null || value === '') return true;
+            return /^https?:\/\/[^\s'"]+$/.test(value) || _('Invalid URL');
+        };
+
         o = s.option(form.Button, '_zones', _('Zone IDs'),
             _('Save & Apply first. Fetches and caches Zone ID for every domain below.'));
         o.inputtitle = _('Get Zone IDs');
         o.inputstyle = 'action';
         o.onclick = function() { return runCmd(_('Zone IDs'), ['zones'], true); };
+
+        o = s.option(form.Button, '_import', _('Domains'),
+            _('Save & Apply the token first. Lists A records from all zones available to the token.'));
+        o.inputtitle = _('Import from Cloudflare');
+        o.inputstyle = 'action';
+        o.onclick = function() { return importDomains(nets); };
 
         o = s.option(form.Button, '_run', _('Update now'),
             _('Save & Apply first. Runs the update for all enabled interfaces.'));

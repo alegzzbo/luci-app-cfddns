@@ -16,4 +16,4 @@ case "$ACTION" in
     *) exit 0 ;;
 esac
 
-( sleep "$delay"; /usr/bin/cfddns run "$INTERFACE" >/dev/null 2>&1 ) &
+( sleep "$delay"; /usr/bin/cfddns run "$INTERFACE" retry >/dev/null 2>&1 ) &

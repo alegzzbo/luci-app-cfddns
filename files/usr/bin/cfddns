@@ -1,6 +1,6 @@
 #!/bin/sh
 # cfddns - Cloudflare DDNS for multi-WAN OpenWrt
-# Usage: cfddns run [network] | zones | tgtest
+# Usage: cfddns run [network] [retry] | zones | records | tgtest
 
 . /lib/functions.sh
 . /lib/functions/network.sh
@@ -9,7 +9,10 @@ exec 2>&1
 
 CF_API="https://api.cloudflare.com/client/v4"
 LOCK=/var/lock/cfddns.lock
-WEB_SOURCES="https://ifconfig.me/ip https://api.ipify.org https://icanhazip.com https://checkip.amazonaws.com"
+DEFAULT_SOURCES="https://ifconfig.me/ip https://api.ipify.org https://icanhazip.com https://checkip.amazonaws.com"
+WEB_SOURCES=""
+LAST=1
+FAILED=0
 
 log() { echo "$*" >&2; logger -t cfddns "$*"; }
 
@@ -45,8 +48,22 @@ lock() {
     echo $$ > "$LOCK/pid"
     trap 'rm -rf "$LOCK"' EXIT INT TERM
 }
+unlock() { rm -rf "$LOCK"; }
+
+# wait (max 2 min) until the clock looks sane, TLS needs correct time
+wait_time() {
+    local i=0
+    while [ "$(date +%s)" -lt 1735689600 ] && [ "$i" -lt 120 ]; do
+        i=$((i + 5)); sleep 5
+    done
+}
 
 ### Config
+add_service() {
+    echo "$1" | grep -qE '^https?://[^ "'"'"']+$' || { log "ignoring invalid ip_service '$1'"; return 0; }
+    WEB_SOURCES="$WEB_SOURCES $1"
+}
+
 load_cfg() {
     config_load cfddns
     config_get_bool G_EN global enabled 0
@@ -64,6 +81,16 @@ load_cfg() {
     case "$PX_TYPE" in http|https|socks5h) ;; *) PX_TYPE=none ;; esac
     config_get_bool TG_UPD telegram notify_update 1
     config_get_bool TG_ERR telegram notify_error 0
+    config_get RETRIES global retries 3
+    config_get RETRY_DELAY global retry_delay 20
+    case "$RETRIES" in ''|*[!0-9]*) RETRIES=3 ;; esac
+    case "$RETRY_DELAY" in ''|*[!0-9]*) RETRY_DELAY=20 ;; esac
+    [ "$RETRIES" -ge 1 ] || RETRIES=1
+    [ "$RETRIES" -le 10 ] || RETRIES=10
+    [ "$RETRY_DELAY" -le 300 ] || RETRY_DELAY=300
+    WEB_SOURCES=""
+    config_list_foreach global ip_service add_service
+    [ -n "$WEB_SOURCES" ] || WEB_SOURCES="$DEFAULT_SOURCES"
 }
 
 ### Telegram
@@ -93,7 +120,7 @@ tg() {
     return 1
 }
 notify_ok() { [ "$TG_UPD" = 1 ] && tg "$1"; return 0; }
-notify_err() { [ "$TG_ERR" = 1 ] && tg "$1"; return 0; }
+notify_err() { [ "$LAST" = 1 ] && [ "$TG_ERR" = 1 ] && tg "$1"; return 0; }
 
 ### Cloudflare
 cf() { # method path [json]
@@ -142,7 +169,7 @@ get_ip() { # network source
         network_get_device dev "$net"
         [ -n "$dev" ] || { log "[$net] interface is down"; return 1; }
         for url in $WEB_SOURCES; do
-            ip=$(curl -4 -s --max-time 8 --interface "$dev" "$url" 2>/dev/null | tr -d ' \r\n')
+            ip=$(curl -4 -s --max-time 8 --interface "$dev" "$url" 2>/dev/null | head -c 2048 | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
             if is_ipv4 "$ip" && ! is_private "$ip"; then break; fi
             ip=""
         done
@@ -207,12 +234,13 @@ handle_domain() {
         [ "$IP_FAIL" = 1 ] && return 0
         CUR_IP=$(get_ip "$CUR_NET" "$CUR_SRC") || {
             IP_FAIL=1
+            FAILED=1
             notify_err "cfddns: [$CUR_NET] can't determine IP"
             return 0
         }
         log "[$CUR_NET] IP: $CUR_IP"
     fi
-    update_domain "$s" "$name" "$zone" "$CUR_IP"
+    update_domain "$s" "$name" "$zone" "$CUR_IP" || FAILED=1
 }
 
 handle_iface() {
@@ -245,11 +273,52 @@ zone_cb() {
 
 cmd_run() {
     ONLY="$1"
+    local retry="$2" n=0
     load_cfg
     [ "$G_EN" = 1 ] || { log "disabled in config"; exit 0; }
     [ -n "$TOKEN" ] || { log "API token not set"; exit 1; }
-    lock
-    config_foreach handle_iface interface
+    [ "$retry" = "retry" ] && wait_time
+    while :; do
+        n=$((n + 1))
+        if [ "$retry" = "retry" ] && [ "$n" -lt "$RETRIES" ]; then LAST=0; else LAST=1; fi
+        FAILED=0
+        lock
+        config_foreach handle_iface interface
+        unlock
+        [ "$FAILED" = 0 ] && break
+        [ "$LAST" = 1 ] && break
+        log "attempt $n/$RETRIES failed, retry in ${RETRY_DELAY}s"
+        sleep "$RETRY_DELAY"
+    done
+    [ "$FAILED" = 0 ]
+}
+
+# prints one JSON line per zone: {"zone_id":..,"zone":..,"records":<CF response>}
+cmd_records() {
+    exec 2>/dev/null
+    load_cfg
+    [ -n "$TOKEN" ] || { echo '{"error":"API token not set (Save & Apply first)"}'; exit 1; }
+    local page=1 pages=1 resp rec i id name
+    while [ "$page" -le "$pages" ]; do
+        resp=$(cf GET "/zones?per_page=50&page=$page")
+        if ! cf_ok "$resp"; then
+            echo "{\"error\":\"$(cf_err "$resp" | tr -d '"\\')\"}"
+            exit 1
+        fi
+        pages=$(jsonfilter -s "$resp" -e '@.result_info.total_pages')
+        [ -n "$pages" ] || pages=1
+        i=0
+        while :; do
+            id=$(jsonfilter -s "$resp" -e "@.result[$i].id")
+            [ -n "$id" ] || break
+            name=$(jsonfilter -s "$resp" -e "@.result[$i].name")
+            rec=$(cf GET "/zones/$id/dns_records?type=A&per_page=500" | tr -d '\r\n')
+            cf_ok "$rec" && echo "{\"zone_id\":\"$id\",\"zone\":\"$name\",\"records\":$rec}"
+            i=$((i + 1))
+        done
+        page=$((page + 1))
+    done
+    return 0
 }
 
 cmd_zones() {
@@ -267,8 +336,9 @@ cmd_tgtest() {
 }
 
 case "$1" in
-    run) cmd_run "$2" ;;
+    run) cmd_run "$2" "$3" ;;
     zones) cmd_zones ;;
+    records) cmd_records ;;
     tgtest) cmd_tgtest ;;
-    *) echo "Usage: cfddns run [network] | zones | tgtest"; exit 1 ;;
+    *) echo "Usage: cfddns run [network] [retry] | zones | records | tgtest"; exit 1 ;;
 esac

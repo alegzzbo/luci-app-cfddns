@@ -6,11 +6,14 @@ Cloudflare DDNS для OpenWrt (multi-WAN) + LuCI: Services -> Cloudflare DDNS.
 ## Возможности
 - Интерфейсы: вкл/выкл, источник IP: `web` (ifconfig.me, ipify, icanhazip, amazonaws через этот интерфейс, проверка формата и не-private) или `iface` (адрес с интерфейса, private/NAT пропускается).
 - Домены привязаны к интерфейсу, вкл/выкл по каждому. Если A-записи нет, создаётся (TTL auto, proxied=off). Существующая обновляется через PATCH (proxied/TTL сохраняются).
+- Импорт доменов из Cloudflare: кнопка "Import from Cloudflare" показывает A-записи всех зон токена, выбранные добавляются вместе с Zone ID (затем Save & Apply).
 - Один API token на все домены. Zone ID получается через API, кешируется в UCI (кнопка "Get Zone IDs" или автоматически при первом обновлении).
 - Запуск определяется по протоколу интерфейса (`network.<if>.proto`, показан в таблице Interfaces):
   - ppp/pppoe/pppoa/pptp/l2tp/3g: при поднятии соединения (`ifup`);
   - dhcp/static/прочие: при `ifup` и при смене адреса (`ifupdate`);
-  - плюс cron (интервал в UI, 0 = выкл).
+  - плюс cron (интервал в UI, 0 = выкл);
+  - при загрузке роутера интерфейсы поднимаются, срабатывает `ifup`; при событиях интерфейса делается несколько попыток (по умолчанию 3 с паузой 20 с), так как время/DNS могут быть ещё не готовы; уведомление об ошибке в Telegram уходит только после последней попытки.
+- Сервисы проверки IP настраиваются списком (порядок = приоритет); из ответа берётся первый IPv4 (plain text или JSON). Пусто = встроенный список.
 - Telegram: уведомления об обновлении / об ошибках, прокси (HTTP / HTTPS / SOCKS5, порт, логин/пароль, пропуск проверки сертификата прокси), тест-кнопка.
   Для HTTPS-прокси нужен curl с поддержкой HTTPS-proxy (проверка: `curl -V | grep HTTPS-proxy`).
 
@@ -80,7 +83,9 @@ ssh root@192.168.1.1 'chmod +x /usr/bin/cfddns /etc/init.d/cfddns /etc/hotplug.d
 ## CLI
 ```
 cfddns run [network]   # обновить все / один интерфейс
+cfddns run wan retry # с повторами, как при ifup
 cfddns zones           # получить и закешировать Zone ID
+cfddns records         # JSON: A-записи всех зон (для импорта)
 cfddns tgtest          # тест Telegram
 logread -e cfddns
 ```
