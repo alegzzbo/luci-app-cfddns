@@ -88,7 +88,8 @@ jobs:
           ./scripts/feeds install -a
 
       - name: Add package to SDK
-        run: rsync -a --exclude '.git' --exclude '.github' ./ "sdk/package/${PKG}/"
+        run: rsync -a --exclude '.git' --exclude '.github'       - name: Add package to SDK
+        run: rsync -a --exclude '.git' --exclude '.github' --exclude 'sdk' --exclude 'sdk-dl' ./ "sdk/package/${PKG}/" ./ "sdk/package/${PKG}/"
 
       - name: Build package
         working-directory: sdk
