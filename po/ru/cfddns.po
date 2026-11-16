@@ -261,6 +261,12 @@ msgstr "Уведомлять об обновлении"
 msgid "Notify on errors"
 msgstr "Уведомлять об ошибках"
 
+msgid "Report an error after (failed runs in a row)"
+msgstr "Сообщать об ошибке после (неудачных запусков подряд)"
+
+msgid "Filters out short network glitches. With a 5 minute check interval, 3 = 15 minutes."
+msgstr "Отсекает кратковременные сбои сети. При проверке раз в 5 минут значение 3 = 15 минут."
+
 msgid "Repeat the same error after (hours)"
 msgstr "Повторять одинаковую ошибку через (часов)"
 

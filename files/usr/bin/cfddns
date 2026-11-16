@@ -66,6 +66,7 @@ add_service() {
 }
 
 load_cfg() {
+    rm -f "$STATE/cfdown"
     config_load cfddns
     config_get_bool G_EN global enabled 0
     config_get TOKEN global api_token
@@ -83,6 +84,9 @@ load_cfg() {
     config_get_bool TG_UPD telegram notify_update 1
     config_get_bool TG_ERR telegram notify_error 0
     config_get REPEAT_H telegram error_repeat 0
+    config_get ERR_AFTER telegram error_after 3
+    case "$ERR_AFTER" in ''|*[!0-9]*) ERR_AFTER=3 ;; esac
+    [ "$ERR_AFTER" -ge 1 ] || ERR_AFTER=1
     case "$REPEAT_H" in ''|*[!0-9]*) REPEAT_H=0 ;; esac
     config_get RETRIES global retries 3
     config_get RETRY_DELAY global retry_delay 20
@@ -123,12 +127,18 @@ tg() {
     return 1
 }
 notify_ok() { [ "$TG_UPD" = 1 ] && tg "$1"; return 0; }
-# Error notifications are de-duplicated: the same text for the same key is sent once
-# (again after REPEAT_H hours if > 0); a "recovered" message is sent when it is fixed.
+# Error notifications: reported only after ERR_AFTER failed runs in a row; the same text is
+# sent once (again after REPEAT_H hours if > 0); "recovered" is sent when it is fixed.
 notify_err() { # key text
     [ "$LAST" = 1 ] && [ "$TG_ERR" = 1 ] || return 0
-    local f old ts now
-    f="$STATE/err_$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')"
+    local k f c old ts now
+    k=$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')
+    mkdir -p "$STATE"
+    c=$(cat "$STATE/cnt_$k" 2>/dev/null)
+    c=$(( ${c:-0} + 1 ))
+    echo "$c" > "$STATE/cnt_$k"
+    [ "$c" -ge "$ERR_AFTER" ] || return 0
+    f="$STATE/err_$k"
     now=$(date +%s)
     if [ -f "$f" ]; then
         old=$(sed -n 1p "$f"); ts=$(sed -n 2p "$f")
@@ -136,14 +146,15 @@ notify_err() { # key text
             [ "$REPEAT_H" -gt 0 ] && [ $((now - ${ts:-0})) -ge $((REPEAT_H * 3600)) ] || return 0
         fi
     fi
-    mkdir -p "$STATE"
     tg "$2" && printf '%s\n%s\n' "$2" "$now" > "$f"
     return 0
 }
 
 notify_clear() { # key text; returns 0 if an error had been reported before
-    local f
-    f="$STATE/err_$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')"
+    local k f
+    k=$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')
+    f="$STATE/err_$k"
+    rm -f "$STATE/cnt_$k"
     [ -f "$f" ] || return 1
     rm -f "$f"
     [ "$TG_ERR" = 1 ] && tg "$2"
@@ -151,14 +162,46 @@ notify_clear() { # key text; returns 0 if an error had been reported before
 }
 
 ### Cloudflare
+CF_TRIES=3
+
+cf_fail() { # reason -> synthetic API error (same shape as Cloudflare errors)
+    printf '{"success":false,"errors":[{"message":"api.cloudflare.com: %s"}]}\n' "$1"
+    return 1
+}
+
+# Prints the JSON response. Transient failures (no connection, timeout, HTTP 429/5xx) are
+# retried; after that the API is considered down for the rest of this run.
 cf() { # method path [json]
-    if [ -n "$3" ]; then
-        curl -s --max-time 15 -X "$1" "$CF_API$2" \
-            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data "$3"
-    else
-        curl -s --max-time 15 -X "$1" "$CF_API$2" \
-            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"
+    local try=1 out rc http body reason
+    if [ -f "$STATE/cfdown" ]; then
+        cf_fail "$(cat "$STATE/cfdown") (skipped, failed earlier in this run)"
+        return 1
     fi
+    while :; do
+        if [ -n "$3" ]; then
+            out=$(curl -4 -s --connect-timeout 8 --max-time 20 -w '\n%{http_code}' -X "$1" "$CF_API$2" \
+                -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data "$3" 2>/dev/null)
+        else
+            out=$(curl -4 -s --connect-timeout 8 --max-time 20 -w '\n%{http_code}' -X "$1" "$CF_API$2" \
+                -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" 2>/dev/null)
+        fi
+        rc=$?
+        http=$(printf '%s\n' "$out" | tail -n1)
+        body=$(printf '%s\n' "$out" | sed '$d')
+        if [ "$rc" = 0 ] && [ -n "$body" ]; then
+            case "$http" in
+                000|429|5??|'') ;;
+                *) printf '%s\n' "$body"; return 0 ;;
+            esac
+        fi
+        if [ "$rc" != 0 ]; then reason=$(curl_rc_text "$rc"); else reason="HTTP ${http:-000}"; fi
+        [ "$try" -lt "$CF_TRIES" ] || break
+        try=$((try + 1))
+        sleep 3
+    done
+    mkdir -p "$STATE"
+    printf '%s' "$reason" > "$STATE/cfdown"
+    cf_fail "$reason"
 }
 cf_ok() { [ "$(jsonfilter -s "$1" -e '@.success')" = "true" ]; }
 cf_err() {
@@ -350,6 +393,7 @@ cmd_run() {
         n=$((n + 1))
         if [ "$retry" = "retry" ] && [ "$n" -lt "$RETRIES" ]; then LAST=0; else LAST=1; fi
         FAILED=0
+        rm -f "$STATE/cfdown"
         lock
         config_foreach handle_iface interface
         unlock

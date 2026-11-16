@@ -259,6 +259,12 @@ msgstr ""
 msgid "Notify on errors"
 msgstr ""
 
+msgid "Report an error after (failed runs in a row)"
+msgstr ""
+
+msgid "Filters out short network glitches. With a 5 minute check interval, 3 = 15 minutes."
+msgstr ""
+
 msgid "Repeat the same error after (hours)"
 msgstr ""
 

@@ -402,6 +402,12 @@ return view.extend({
         o.rmempty = false;
         o.depends('enabled', '1');
 
+        o = s.option(form.Value, 'error_after', _('Report an error after (failed runs in a row)'),
+            _('Filters out short network glitches. With a 5 minute check interval, 3 = 15 minutes.'));
+        o.datatype = 'range(1,20)';
+        o.default = '3';
+        o.depends('enabled', '1');
+
         o = s.option(form.Value, 'error_repeat', _('Repeat the same error after (hours)'),
             _('0 = send once, then only when the error changes or is fixed.'));
         o.datatype = 'range(0,720)';
