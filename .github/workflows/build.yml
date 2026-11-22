@@ -72,7 +72,7 @@ jobs:
       - name: Update luci feed
         working-directory: sdk
         run: |
-          ./scripts/feeds update luci
+          ./scripts/feeds update base luci
           ./scripts/feeds install -p luci luci-base
 
       - name: Add package to SDK
