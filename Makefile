@@ -17,15 +17,10 @@ define Package/luci-app-cfddns/conffiles
 /etc/config/cfddns
 endef
 
-define Package/luci-app-cfddns/install
-	$(INSTALL_DIR) $(1)
-	$(CP) ./files/* $(1)/
-	chmod 0755 $(1)/usr/bin/cfddns $(1)/etc/init.d/cfddns $(1)/etc/hotplug.d/iface/90-cfddns
-endef
-
 define Package/luci-app-cfddns/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
+	chmod 0755 /usr/bin/cfddns /etc/init.d/cfddns /etc/hotplug.d/iface/90-cfddns
 	/etc/init.d/cfddns enable
 	/etc/init.d/cfddns start
 	rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache

@@ -67,7 +67,7 @@ ssh root@192.168.1.1 'apk add --allow-untrusted /tmp/luci-app-cfddns-*.apk'
 
 ## Быстрая проверка без сборки
 ```
-scp -r luci-app-cfddns/files/* root@192.168.1.1:/
+scp -r luci-app-cfddns/root/* root@192.168.1.1:/ && scp -r luci-app-cfddns/htdocs/* root@192.168.1.1:/www/
 ssh root@192.168.1.1 'chmod +x /usr/bin/cfddns /etc/init.d/cfddns /etc/hotplug.d/iface/90-cfddns; apk add curl ca-bundle jsonfilter; /etc/init.d/cfddns enable; /etc/init.d/cfddns start; /etc/init.d/rpcd reload'
 ```
 Обновить страницу LuCI (Ctrl+F5).
