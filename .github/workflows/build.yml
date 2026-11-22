@@ -22,14 +22,22 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Sync PKG_VERSION with tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Set dynamic PKG_VERSION
         run: |
-          ver="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            ver="${GITHUB_REF_NAME#v}"
+          else
+            desc=$(git describe --tags --match 'v*' --always 2>/dev/null || echo "0.0.0")
+            ver="${desc#v}"
+            ver="${ver//-/\~}"
+          fi
           sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${ver}/" Makefile
-          echo "Set PKG_VERSION to ${ver}"
+          echo "Dynamic PKG_VERSION=${ver}"
           grep '^PKG_VERSION:=' Makefile
+
 
       - name: Resolve OpenWrt version
         id: ver
