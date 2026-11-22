@@ -283,3 +283,17 @@ msgstr ""
 msgid "Telegram test"
 msgstr ""
 
+msgid "IP"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Last check"
+msgstr ""
+
+msgid "No data yet. Run an update."
+msgstr ""
+
+msgid "Select all"
+msgstr ""

@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-cfddns
-PKG_VERSION:=1.4.3
+PKG_VERSION:=1.5.1
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKG_BUILD_DEPENDS:=luci-base/host

@@ -285,3 +285,17 @@ msgstr "Отправить тестовое сообщение"
 msgid "Telegram test"
 msgstr "Тест Telegram"
 
+msgid "IP"
+msgstr "IP"
+
+msgid "Status"
+msgstr "Статус"
+
+msgid "Last check"
+msgstr "Последняя проверка"
+
+msgid "No data yet. Run an update."
+msgstr "Данных пока нет. Запустите обновление."
+
+msgid "Select all"
+msgstr "Выбрать все"

@@ -130,30 +130,24 @@ function openManager(nets, msg) {
             p.records.forEach(function(r) { if (!r.cb.disabled) r.cb.checked = all.checked; });
         });
 
+        var ROW = 'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.3)';
         var rows = p.records.map(function(r) {
             r.cb = E('input', { 'type': 'checkbox' });
             if (managed[r.name]) r.cb.disabled = true;
-            return E('tr', { 'class': 'tr' }, [
-                E('td', { 'class': 'td' }, r.cb),
-                E('td', { 'class': 'td' }, r.name + (managed[r.name] ? ' ' + _('(already added)') : '')),
-                E('td', { 'class': 'td' }, r.content || ''),
-                E('td', { 'class': 'td' }, r.proxied ? _('Proxied') : ''),
-                E('td', { 'class': 'td' }, r.zone),
-                E('td', { 'class': 'td' }, E('button', {
+            return E('div', { 'style': ROW }, [
+                r.cb,
+                E('div', { 'style': 'flex:1;min-width:0;word-break:break-all' }, [
+                    E('div', {}, r.name + (managed[r.name] ? ' ' + _('(already added)') : '')),
+                    E('small', {}, [ r.content || '', r.proxied ? ' · ' + _('Proxied') : '', ' · ', r.zone ].join(''))
+                ]),
+                E('button', {
                     'class': 'btn cbi-button cbi-button-negative',
                     'click': function() { confirmDelete(r); }
-                }, _('Delete')))
+                }, _('Delete'))
             ]);
         });
 
-        var head = E('tr', { 'class': 'tr table-titles' }, [
-            E('th', { 'class': 'th' }, all),
-            E('th', { 'class': 'th' }, _('Domain')),
-            E('th', { 'class': 'th' }, _('Current IP')),
-            E('th', { 'class': 'th' }, ''),
-            E('th', { 'class': 'th' }, _('Zone')),
-            E('th', { 'class': 'th' }, '')
-        ]);
+        var head = E('label', { 'style': 'display:block;padding:6px 0' }, [ all, ' ', _('Select all') ]);
 
         var zoneSel = E('select', { 'class': 'cbi-input-select' },
             p.zones.map(function(z) { return E('option', { 'value': z.id }, z.name); }));
@@ -189,7 +183,7 @@ function openManager(nets, msg) {
             status,
             E('p', {}, _('Select records to add them to managed domains, or delete records.')),
             E('div', { 'style': 'max-height:35vh;overflow:auto' },
-                E('table', { 'class': 'table' }, [ head ].concat(rows))),
+                E('div', {}, [ head ].concat(rows))),
             E('p', {}, [ E('strong', {}, _('Interface') + ': '), ifSel, ' ',
                          E('span', { 'class': 'cbi-value-description' }, _('Used when adding to managed domains.')) ]),
             E('h4', {}, _('New A record')),
@@ -225,10 +219,13 @@ function openManager(nets, msg) {
 
 return view.extend({
     load: function() {
-        return uci.load('network');
+        return Promise.all([
+            uci.load('network'),
+            fs.exec('/usr/bin/cfddns', [ 'status' ]).catch(function() { return {}; })
+        ]);
     },
 
-    render: function() {
+    render: function(data) {
         var m, s, o;
         var nets = uci.sections('network', 'interface')
             .map(function(n) { return n['.name']; })
@@ -420,6 +417,22 @@ return view.extend({
         o.onclick = function() { return runCmd(_('Telegram test'), ['tgtest'], false); };
         o.depends('enabled', '1');
 
-        return m.render();
+        var srows = ((data[1] && data[1].stdout) || '').split('\n').map(function(l) {
+            try { return JSON.parse(l); } catch (e) { return null; }
+        }).filter(Boolean);
+
+        var st = E('div', {}, srows.length ? srows.map(function(r) {
+            return E('div', { 'style': 'padding:6px 0;border-bottom:1px solid rgba(128,128,128,.3);word-break:break-all' }, [
+                E('strong', {}, r.domain),
+                ' ',
+                E('small', {}, [ r.iface, r.ip || '' ].filter(Boolean).join(' · ')),
+                E('div', { 'style': 'color:' + (r.state === 'ok' ? 'green' : 'red') }, r.msg),
+                E('small', {}, new Date(r.ts * 1000).toLocaleString())
+            ]);
+        }) : [ E('em', {}, _('No data yet. Run an update.')) ]);
+
+        return m.render().then(function(node) {
+            return E([ E('h3', {}, _('Status')), st, node ]);
+        });
     }
 });
