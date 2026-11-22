@@ -69,11 +69,12 @@ jobs:
           mkdir sdk
           tar -xf sdk-dl/openwrt-sdk-* -C sdk --strip-components=1
 
-      - name: Update luci feed
+      - name: Update feeds
         working-directory: sdk
         run: |
-          ./scripts/feeds update luci
-          ./scripts/feeds install -p luci luci-base
+          ./scripts/feeds update base luci
+          ./scripts/feeds install -a -p base
+          ./scripts/feeds install -a -p luci
 
       - name: Add package to SDK
         run: rsync -a --exclude '.git' --exclude '.github' --exclude 'sdk' --exclude 'sdk-dl' ./ "sdk/package/${PKG}/"
